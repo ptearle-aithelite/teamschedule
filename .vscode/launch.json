@@ -13,7 +13,7 @@
             "args": [
                 "Boise State University",
                 "BSUSoccerW",
-                "2024"
+                "2025"
                 ],
                 "dlvFlags": ["--check-go-version=false"],
                 "env": {

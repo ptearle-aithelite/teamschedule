@@ -135,4 +135,39 @@ func main() {
 	}
 	log.Printf("Schedule entries: %d", len(theSchedule))
 
+	// Find the team document to get its full path (contains conference and school info)
+	teamIter := client.CollectionGroup("teams").Documents(ctx)
+	var teamDocRef *firestore.DocumentRef
+	for {
+		doc, err := teamIter.Next()
+		if err == iterator.Done {
+			log.Fatalf("Could not find team document for team %s", teamDocID)
+		}
+		if err != nil {
+			log.Fatalf("Error searching for team: %v", err)
+		}
+		if doc.Ref.ID == teamDocID {
+			teamDocRef = doc.Ref
+			log.Printf("Found team at path: %s", teamDocRef.Path)
+			break
+		}
+	}
+
+	// The team doc ref path is: conferences/{confID}/schools/{schoolID}/teams/{teamID}
+	// We can traverse up the hierarchy
+	scheduleCollection := teamDocRef.Collection("schedule")
+
+	log.Printf("Writing schedule entries to: %s", scheduleCollection.Path)
+
+	for i, entry := range theSchedule {
+		// Use date as document ID (or you could use auto-generated IDs)
+		docRef := scheduleCollection.Doc(entry.Date)
+		_, err := docRef.Set(ctx, entry)
+		if err != nil {
+			log.Fatalf("Failed to write schedule entry %d (path: %s): %v", i, docRef.Path, err)
+		}
+		log.Printf("Wrote schedule entry %d: %s vs %s (path: %s)", i, entry.Date, entry.Opponent, docRef.Path)
+	}
+
+	log.Printf("Successfully wrote %d schedule entries", len(theSchedule))
 }
