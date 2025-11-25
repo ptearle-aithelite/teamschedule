@@ -139,6 +139,10 @@ func getSchedule(ctx context.Context, client *firestore.Client, teamStatCode str
 		if s == "" {
 			return ""
 		}
+
+		// Split on space to remove time portion if present
+		datePart := strings.Fields(s)[0]
+
 		layouts := []string{
 			"Jan 2, 2006",
 			"January 2, 2006",
@@ -150,7 +154,7 @@ func getSchedule(ctx context.Context, client *firestore.Client, teamStatCode str
 			"Jan 2 2006",
 		}
 		for _, layout := range layouts {
-			if t, err := time.Parse(layout, s); err == nil {
+			if t, err := time.Parse(layout, datePart); err == nil {
 				return t.Format("20060102")
 			}
 		}
@@ -158,32 +162,38 @@ func getSchedule(ctx context.Context, client *firestore.Client, teamStatCode str
 		return s
 	}
 
-	// Iterate tables and skip the second one
+	// Process only the first table
 	doc.Find("div.card-body > table").Each(func(tableIdx int, table *goquery.Selection) {
-		if tableIdx == 1 {
-			log.Println("Skipping table at index 1")
-			return // skip second table
+		if tableIdx > 0 {
+			return // only process the first table, ignore all others
 		}
 
 		// Iterate rows within this table
 		rows := table.Find("tbody tr")
-		log.Printf("Table %d: processing %d rows", tableIdx, rows.Length())
 
 		rows.Each(func(rowIdx int, row *goquery.Selection) {
 			cells := row.Find("td")
-			if cells.Length() < 4 {
-				return // skip rows that don't have at least 4 cells (spacer rows, headers, etc.)
+			// Be permissive: require only date and opponent cells. Some future rows
+			// may have missing score/attendance (colspan or empty cells).
+			if cells.Length() < 2 {
+				return // need at least date and opponent
 			}
 
-			// Extract cell values
+			// Extract cell values (optional fields handled safely)
 			date := getCellText(cells, 0)
+			// scoreResult and attendance may be absent; getCellText handles bounds
 			scoreResult := getCellText(cells, 2)
 			attendance := getCellText(cells, 3)
 
-			// Extract opponent from the link text in cell 1
+			// Extract opponent - try both link text and cell text
 			opponentCell := cells.Eq(1)
 			opponentLink := opponentCell.Find("a").Text()
 			opponent := strings.TrimSpace(opponentLink)
+			if opponent == "" {
+				// If no link, get all text from cell
+				opponent = strings.TrimSpace(opponentCell.Text())
+			}
+
 			// Remove leading "@ " if present
 			opponent = strings.TrimSpace(strings.TrimPrefix(opponent, "@ "))
 			// Remove any words starting with "#"
@@ -196,8 +206,11 @@ func getSchedule(ctx context.Context, client *firestore.Client, teamStatCode str
 			}
 			opponent = strings.Join(cleanWords, " ")
 
-			if date == "" {
-				return // skip empty rows
+			if date == "" || opponent == "" {
+				if strings.Contains(date, "11/26") || strings.Contains(opponent, "Canyon") {
+					log.Printf("Filtered out: date='%s', opponent='%s'", date, opponent)
+				}
+				return // skip rows with no date or opponent
 			}
 
 			result := ""

@@ -12,7 +12,7 @@
             "program": "${fileDirname}",
             "args": [
                 "Boise State University",
-                "BSUSoccerW",
+                "BSUVolleyball",
                 "2025"
                 ],
                 "dlvFlags": ["--check-go-version=false"],

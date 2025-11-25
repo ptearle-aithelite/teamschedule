@@ -24,7 +24,7 @@ type TeamSchedule struct {
 func findStatsCode(ctx context.Context, client *firestore.Client, teamID string, year string) (string, error) {
 	// Find the team document by searching the collection group "teams"
 	iter := client.CollectionGroup("teams").Documents(ctx)
-	var teamDoc *firestore.DocumentSnapshot
+	var teamDocRef *firestore.DocumentRef
 
 	for {
 		doc, err := iter.Next()
@@ -35,69 +35,29 @@ func findStatsCode(ctx context.Context, client *firestore.Client, teamID string,
 			return "", err
 		}
 		if doc.Ref.ID == teamID {
-			teamDoc = doc
+			teamDocRef = doc.Ref
 			break
 		}
 	}
 
-	// Iterate the team's "teamStats" subcollection and look for a document
-	// whose ID matches the provided year. Return its NCAATeamCode field.
-	statsIter := teamDoc.Ref.Collection("teamStats").Documents(ctx)
-	for {
-		statDoc, err := statsIter.Next()
-		if err == iterator.Done {
-			break
-		}
-		if err != nil {
-			return "", err
-		}
-
-		if statDoc.Ref.ID == year {
-			v, err := statDoc.DataAt("NCAATeamCode")
-			if err != nil {
-				return "", fmt.Errorf("NCAATeamCode not found on %s: %v", statDoc.Ref.Path, err)
-			}
-			code, ok := v.(string)
-			if !ok {
-				return "", fmt.Errorf("NCAATeamCode is not a string on %s", statDoc.Ref.Path)
-			}
-			return code, nil
-		}
+	// Access the year collection under the team doc and get the yearData document
+	yearDataDoc, err := teamDocRef.Collection(year).Doc("yearData").Get(ctx)
+	if err != nil {
+		return "", fmt.Errorf("yearData document not found in collection %s for team %s: %v", year, teamID, err)
 	}
 
-	return "", fmt.Errorf("teamStats for year %s not found for team %s", year, teamID)
+	// Extract NCAATeamStatsCode field
+	v, err := yearDataDoc.DataAt("NCAATeamStatsCode")
+	if err != nil {
+		return "", fmt.Errorf("NCAATeamStatsCode not found in %s: %v", yearDataDoc.Ref.Path, err)
+	}
+	code, ok := v.(string)
+	if !ok {
+		return "", fmt.Errorf("NCAATeamStatsCode is not a string in %s", yearDataDoc.Ref.Path)
+	}
+	return code, nil
 }
 
-/*
-	func getSchedule(ctx context.Context, client *firestore.Client, teamStatCode string) ([]TeamSchedule, error) {
-		// Lookup the association document for NCAA and get the teamStatsSite base URL
-		iter := client.Collection("associations").Where("abbreviation", "==", "NCAA").Limit(1).Documents(ctx)
-		assocDoc, err := iter.Next()
-		if err == iterator.Done {
-			return nil, fmt.Errorf("no association with abbreviation 'NCAA' found")
-		}
-		if err != nil {
-			return nil, err
-		}
-
-		v, err := assocDoc.DataAt("teamStatsSite")
-		if err != nil {
-			return nil, fmt.Errorf("teamStatsSite not found on association %s: %v", assocDoc.Ref.Path, err)
-		}
-		baseURL, ok := v.(string)
-		if !ok {
-			return nil, fmt.Errorf("teamStatsSite is not a string on %s", assocDoc.Ref.Path)
-		}
-
-		// TODO: Use baseURL and teamStatCode to fetch schedule from the remote site.
-		// For now return an empty schedule so the caller can proceed with further work.
-		_ = baseURL
-		_ = teamStatCode
-
-		var schedule []TeamSchedule
-		return schedule, nil
-	}
-*/
 func main() {
 	if len(os.Args) != 4 {
 		log.Fatalf(errors.New("Usage - teamschedule <school name> <team name> <year>").Error())
@@ -153,9 +113,10 @@ func main() {
 		}
 	}
 
-	// The team doc ref path is: conferences/{confID}/schools/{schoolID}/teams/{teamID}
-	// We can traverse up the hierarchy
-	scheduleCollection := teamDocRef.Collection("schedule")
+	// Write schedule entries to the schedule collection under yearData doc
+	// Path: teams/{teamID}/{year}/yearData/schedule/{date}
+	yearDataDocRef := teamDocRef.Collection(yearDocID).Doc("yearData")
+	scheduleCollection := yearDataDocRef.Collection("schedule")
 
 	log.Printf("Writing schedule entries to: %s", scheduleCollection.Path)
 
