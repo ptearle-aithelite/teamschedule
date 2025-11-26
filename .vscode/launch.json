@@ -12,8 +12,8 @@
             "program": "${fileDirname}",
             "args": [
                 "Boise State University",
-                "BSUVolleyball",
-                "2025"
+                "BSUFootball",
+                "2024"
                 ],
                 "dlvFlags": ["--check-go-version=false"],
                 "env": {
